@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="sv">
 <head>
 <meta charset="utf-8">
@@ -127,10 +127,10 @@ const SYSTEM_PROMPT = "Agera som en person med ditt eget ordförråd, personlig 
 
 // State variables
 let autoListenMode = false;
-let isProcessing = false; 
+let isProcessing = false; // Prevents restarting while AI is thinking/speaking
 let recognition; 
 let silenceTimer;
-const SILENCE_DELAY = 1000; // Vänta 1 sek efter tal innan den skickar
+const SILENCE_DELAY = 2500; // Wait 2.5 seconds AFTER speaking to stop
 
 let conversation = JSON.parse(localStorage.getItem("conversation")) || [
   { role:"system", content: SYSTEM_PROMPT }
@@ -165,7 +165,7 @@ function playAudioBlob(base64Audio) {
 }
 
 
-// --- VOICE RECOGNITION (Optimized) ---
+// --- VOICE RECOGNITION (Improved for Swedish) ---
 
 function initSpeech() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -174,7 +174,7 @@ function initSpeech() {
     const rec = new SpeechRecognition();
     rec.continuous = true; 
     rec.interimResults = true; 
-    rec.lang = "sv-SE"; 
+    rec.lang = "sv-SE"; // CHANGED TO SWEDISH
     
     rec.onstart = () => {
         micButton.classList.add("listening");
@@ -182,6 +182,7 @@ function initSpeech() {
     };
 
     rec.onresult = (event) => {
+        // We heard something, so clear any pending silence timer
         clearTimeout(silenceTimer);
 
         let transcript = '';
@@ -191,24 +192,34 @@ function initSpeech() {
         
         chatInput.value = transcript;
 
+        // ONLY start the silence timer if there is actual text.
+        // If transcript is empty (just noise), we don't start the timer.
         if (transcript.trim().length > 0) {
             silenceTimer = setTimeout(() => {
-                rec.stop(); 
-                isProcessing = true; 
+                rec.stop(); // Stop listening
+                isProcessing = true; // Mark as processing so we don't auto-restart immediately
                 handleVoiceCommand(transcript);
             }, SILENCE_DELAY);
         }
     };
 
     rec.onerror = (event) => {
-        if (event.error !== 'no-speech') {
+        if (event.error === 'no-speech') {
+            // Browser detected silence and wants to stop.
+            // If we are in auto mode, we ignore this and rely on onend to restart.
+            console.log("Silence detected (no-speech), keeping alive...");
+        } else {
              console.error("Speech Error:", event.error);
+             // For other errors, we might want to alert or stop
         }
     };
     
     rec.onend = () => {
-        // Om vi ska lyssna, och inte håller på att processa ett svar: STARTA OM DIREKT
+        // If the browser stopped the mic (e.g. 10s silence limit reached),
+        // and we are NOT processing an answer, and still in auto mode:
+        // RESTART IMMEDIATELY.
         if (autoListenMode && !isProcessing) {
+            console.log("Mic ended (silence), restarting...");
             startListening();
         } else if (!autoListenMode) {
             micButton.classList.remove("listening");
@@ -221,25 +232,25 @@ function initSpeech() {
 
 function handleVoiceCommand(transcript) {
     const lowerTranscript = transcript.toLowerCase();
-    
+    // Added Swedish stop words
     if (lowerTranscript.includes("exit") || lowerTranscript.includes("stop") || lowerTranscript.includes("avsluta") || lowerTranscript.includes("sluta")) {
         autoListenMode = false;
         micButton.classList.remove("listening");
         chatInput.placeholder = "Röstassistent avaktiverad";
         isProcessing = false;
-        const utter = new SpeechSynthesisUtterance("Hejdå"); 
+        const utter = new SpeechSynthesisUtterance("Hejdå"); // Swedish goodbye
         utter.lang = "sv-SE";
         window.speechSynthesis.speak(utter);
         return;
     }
-    
+    // Send to Vercel Backend
     getMiaReply(transcript); 
     chatInput.value = '';
 }
 
 function startListening() {
     try {
-        if(recognition) recognition.stop(); 
+        if(recognition) recognition.stop(); // Stop old instance
     } catch(e){}
 
     recognition = initSpeech();
@@ -248,21 +259,20 @@ function startListening() {
         return;
     }
 
-    // Liten timeout på 10ms för att förhindra krasch vid snabb loop
-    setTimeout(() => {
-        try { recognition.start(); } catch (e) { 
-            console.log("Recognition start error:", e); 
-        }
-    }, 10);
+    try { recognition.start(); } catch (e) { 
+        console.log("Recognition start error:", e); 
+    }
 }
 
 micButton.addEventListener("click", () => {
+    // Vercel HTTPS check
     if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
         alert("Mikrofonåtkomst kräver HTTPS.");
         return;
     }
 
     if(autoListenMode) {
+        // User manually stopping
         autoListenMode = false;
         isProcessing = false;
         clearTimeout(silenceTimer);
@@ -271,6 +281,7 @@ micButton.addEventListener("click", () => {
         micButton.classList.remove("listening");
         chatInput.placeholder = "Skriv ett meddelande";
     } else {
+        // User manually starting
         autoListenMode = true;
         isProcessing = false;
         startListening();
@@ -304,6 +315,7 @@ async function getMiaReply(message){
   chatContainer.scrollTo(0,chatContainer.scrollHeight);
 
   try{
+    // Call Vercel Backend
     const res = await fetch(API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -314,7 +326,7 @@ async function getMiaReply(message){
     if(data.error) throw new Error(data.error);
 
     const reply = data.content;
-    const audioData = data.audio; 
+    const audioData = data.audio; // Base64 Audio
 
     conversation.push({ role:"assistant", content:reply });
     saveConversation();
@@ -326,6 +338,7 @@ async function getMiaReply(message){
     saveAllChats();
     chatContainer.scrollTo(0,chatContainer.scrollHeight);
 
+    // Play Audio
     if(audioData) {
         playAudioBlob(audioData);
     } else {
