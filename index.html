@@ -127,10 +127,10 @@ const SYSTEM_PROMPT = "Agera som en person med ditt eget ordförråd, personlig 
 
 // State variables
 let autoListenMode = false;
-let isProcessing = false; // Prevents restarting while AI is thinking/speaking
+let isProcessing = false; 
 let recognition; 
 let silenceTimer;
-const SILENCE_DELAY = 2500; // Wait 2.5 seconds AFTER speaking to stop
+const SILENCE_DELAY = 1000; // Vänta 1 sek efter tal innan den skickar
 
 let conversation = JSON.parse(localStorage.getItem("conversation")) || [
   { role:"system", content: SYSTEM_PROMPT }
@@ -165,7 +165,7 @@ function playAudioBlob(base64Audio) {
 }
 
 
-// --- VOICE RECOGNITION (Improved for Swedish) ---
+// --- VOICE RECOGNITION (Optimized) ---
 
 function initSpeech() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -174,7 +174,7 @@ function initSpeech() {
     const rec = new SpeechRecognition();
     rec.continuous = true; 
     rec.interimResults = true; 
-    rec.lang = "sv-SE"; // CHANGED TO SWEDISH
+    rec.lang = "sv-SE"; 
     
     rec.onstart = () => {
         micButton.classList.add("listening");
@@ -182,7 +182,6 @@ function initSpeech() {
     };
 
     rec.onresult = (event) => {
-        // We heard something, so clear any pending silence timer
         clearTimeout(silenceTimer);
 
         let transcript = '';
@@ -192,34 +191,24 @@ function initSpeech() {
         
         chatInput.value = transcript;
 
-        // ONLY start the silence timer if there is actual text.
-        // If transcript is empty (just noise), we don't start the timer.
         if (transcript.trim().length > 0) {
             silenceTimer = setTimeout(() => {
-                rec.stop(); // Stop listening
-                isProcessing = true; // Mark as processing so we don't auto-restart immediately
+                rec.stop(); 
+                isProcessing = true; 
                 handleVoiceCommand(transcript);
             }, SILENCE_DELAY);
         }
     };
 
     rec.onerror = (event) => {
-        if (event.error === 'no-speech') {
-            // Browser detected silence and wants to stop.
-            // If we are in auto mode, we ignore this and rely on onend to restart.
-            console.log("Silence detected (no-speech), keeping alive...");
-        } else {
+        if (event.error !== 'no-speech') {
              console.error("Speech Error:", event.error);
-             // For other errors, we might want to alert or stop
         }
     };
     
     rec.onend = () => {
-        // If the browser stopped the mic (e.g. 10s silence limit reached),
-        // and we are NOT processing an answer, and still in auto mode:
-        // RESTART IMMEDIATELY.
+        // Om vi ska lyssna, och inte håller på att processa ett svar: STARTA OM DIREKT
         if (autoListenMode && !isProcessing) {
-            console.log("Mic ended (silence), restarting...");
             startListening();
         } else if (!autoListenMode) {
             micButton.classList.remove("listening");
@@ -232,25 +221,25 @@ function initSpeech() {
 
 function handleVoiceCommand(transcript) {
     const lowerTranscript = transcript.toLowerCase();
-    // Added Swedish stop words
+    
     if (lowerTranscript.includes("exit") || lowerTranscript.includes("stop") || lowerTranscript.includes("avsluta") || lowerTranscript.includes("sluta")) {
         autoListenMode = false;
         micButton.classList.remove("listening");
         chatInput.placeholder = "Röstassistent avaktiverad";
         isProcessing = false;
-        const utter = new SpeechSynthesisUtterance("Hejdå"); // Swedish goodbye
+        const utter = new SpeechSynthesisUtterance("Hejdå"); 
         utter.lang = "sv-SE";
         window.speechSynthesis.speak(utter);
         return;
     }
-    // Send to Vercel Backend
+    
     getMiaReply(transcript); 
     chatInput.value = '';
 }
 
 function startListening() {
     try {
-        if(recognition) recognition.stop(); // Stop old instance
+        if(recognition) recognition.stop(); 
     } catch(e){}
 
     recognition = initSpeech();
@@ -259,20 +248,21 @@ function startListening() {
         return;
     }
 
-    try { recognition.start(); } catch (e) { 
-        console.log("Recognition start error:", e); 
-    }
+    // Liten timeout på 10ms för att förhindra krasch vid snabb loop
+    setTimeout(() => {
+        try { recognition.start(); } catch (e) { 
+            console.log("Recognition start error:", e); 
+        }
+    }, 10);
 }
 
 micButton.addEventListener("click", () => {
-    // Vercel HTTPS check
     if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
         alert("Mikrofonåtkomst kräver HTTPS.");
         return;
     }
 
     if(autoListenMode) {
-        // User manually stopping
         autoListenMode = false;
         isProcessing = false;
         clearTimeout(silenceTimer);
@@ -281,7 +271,6 @@ micButton.addEventListener("click", () => {
         micButton.classList.remove("listening");
         chatInput.placeholder = "Skriv ett meddelande";
     } else {
-        // User manually starting
         autoListenMode = true;
         isProcessing = false;
         startListening();
@@ -315,7 +304,6 @@ async function getMiaReply(message){
   chatContainer.scrollTo(0,chatContainer.scrollHeight);
 
   try{
-    // Call Vercel Backend
     const res = await fetch(API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -326,7 +314,7 @@ async function getMiaReply(message){
     if(data.error) throw new Error(data.error);
 
     const reply = data.content;
-    const audioData = data.audio; // Base64 Audio
+    const audioData = data.audio; 
 
     conversation.push({ role:"assistant", content:reply });
     saveConversation();
@@ -338,7 +326,6 @@ async function getMiaReply(message){
     saveAllChats();
     chatContainer.scrollTo(0,chatContainer.scrollHeight);
 
-    // Play Audio
     if(audioData) {
         playAudioBlob(audioData);
     } else {
@@ -376,4 +363,3 @@ themeButton.addEventListener("click",()=>{
 </script>
 </body>
 </html>
-
