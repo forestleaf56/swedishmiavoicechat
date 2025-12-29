@@ -42,7 +42,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         model: 'tts-1',
-        voice: 'alloy', // Options: alloy, echo, fable, onyx, nova, shimmer
+        voice: 'nova', // Options: alloy, echo, fable, onyx, nova, shimmer
         input: replyText
       })
     });
